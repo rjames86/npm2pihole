@@ -59,13 +59,17 @@ update_cname_records() {
     # Get existing CNAME records from remote Pi-hole
     existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
 
+    echo $(date) - "DEBUG: Raw existing records: '$existing_records'"
+
     # If no existing records or invalid JSON, start with empty array
     if [ -z "$existing_records" ] || ! echo "$existing_records" | jq . >/dev/null 2>&1; then
+        echo $(date) - "DEBUG: Invalid JSON or empty, starting fresh"
         existing_records="[]"
     fi
 
     # Convert existing records to a format we can work with
     existing_array=$(echo "$existing_records" | jq -r '.[]' 2>/dev/null || echo "")
+    echo $(date) - "DEBUG: Parsed existing array: '$existing_array'"
 
     # Build new records array starting with existing records
     new_records="$existing_records"
@@ -73,6 +77,7 @@ update_cname_records() {
     # Add each new domain that doesn't already exist
     for domain in "${new_domains[@]}"; do
         domain_record="$domain,$target_host"
+        echo $(date) - "DEBUG: Checking if '$domain_record' exists in existing records"
         if echo "$existing_array" | grep -q "^$domain_record$"; then
             echo $(date) - CNAME record already exists: "$domain" -> "$target_host"
         else
