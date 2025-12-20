@@ -87,8 +87,19 @@ update_cname_records() {
 
     # Only update if there are changes
     if [ $n -gt 0 ]; then
-        # Set the new CNAME records (Pi-hole 6 expects the format with spaces inside brackets)
-        formatted_records=$(echo "$new_records" | jq -c '.' | sed 's/\[/ [ /; s/\]/ ] /')
+        # Create the properly quoted format for Pi-hole 6
+        # Convert JSON array to Pi-hole format: [ "item1", "item2" ]
+        formatted_records="[ "
+        first=true
+        while IFS= read -r record; do
+            if [ "$first" = true ]; then
+                first=false
+            else
+                formatted_records+=", "
+            fi
+            formatted_records+="\"$record\""
+        done < <(echo "$new_records" | jq -r '.[]')
+        formatted_records+=" ]"
 
         # Execute the command on remote Pi-hole via SSH (or just print in testing mode)
         if [ "${testing_mode,,}" = "true" ]; then
