@@ -1,6 +1,6 @@
 services:
   npm2pihole:
-    image: ghcr.io/c00ldude1oo/npm2pihole:latest
+    build: .
     env_file: .env
     restart: unless-stopped
     volumes:
