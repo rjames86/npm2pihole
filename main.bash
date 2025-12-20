@@ -59,11 +59,8 @@ update_cname_records() {
     # Get existing CNAME records from remote Pi-hole
     existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
 
-    echo $(date) - "Raw Pi-hole response: '$existing_records'"
-
     # If no existing records or invalid JSON, start with empty array
     if [ -z "$existing_records" ] || ! echo "$existing_records" | jq . >/dev/null 2>&1; then
-        echo $(date) - "No existing records or invalid JSON, starting with empty array"
         existing_records="[]"
     fi
 
@@ -117,13 +114,10 @@ update_cname_records() {
 main() {
     echo $(date) - Starting Check
 
-    # Debug: Check if npm directory exists and list files
+    # Check if npm directory exists and list files
     if [ -d "/app/npm" ]; then
         file_count=$(ls -1 /app/npm/ 2>/dev/null | wc -l)
         echo $(date) - Found $file_count files in /app/npm/ directory
-        if [ $file_count -gt 0 ]; then
-            echo $(date) - Files: $(ls /app/npm/ | head -5)$([ $file_count -gt 5 ] && echo "... and $(($file_count - 5)) more")
-        fi
     else
         echo $(date) - ERROR: /app/npm/ directory not found! Check your volume mount.
         return
@@ -135,22 +129,16 @@ main() {
         if [ -f "$file" ]; then
             server_names=$(grep "server_name" "$file" | sed "s/  server_name //; s/;//")
             if [ -n "$server_names" ]; then
-                echo $(date) - Found domains in $(basename "$file"): $server_names
                 domains1+=("$server_names")
             fi
         fi
     done
     echo $(date) - Total domains found: ${#domains1[@]}
-#dev     echo "this  - last"
-#dev     echo "check - check"
-#dev     echo "  ""${#domains1[@]}""   -   ""${#domains2[@]}"
     if [ "${domains1[*]}" != "${domains2[*]}" ]; then
-        echo $(date) - Found new domains, processing CNAME updates...
-
         # Collect all domains into a single array for batch processing
         all_domains=()
         for i in "${domains1[@]}"; do
-            #a temp fix for npm entries with more then 1 domain.
+            # Handle npm entries with multiple domains
             for a in $i; do
                 all_domains+=("$a")
             done
@@ -176,6 +164,8 @@ main() {
                 fi
             fi
         fi
+    else
+        echo $(date) - No changes detected
     fi
     n=0
 }
