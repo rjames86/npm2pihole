@@ -41,16 +41,16 @@ class NPM2PiHole:
         logger.addHandler(handler)
 
         # Store logger reference
-        self.logger.infoger = logger
+        self.logger = logger
 
     def validate_config(self):
         """Validate configuration"""
         if self.pihole_host == '192.168.0.0':
-            self.logger.infoger.error("Please set PIHOLE_HOST in .env file")
+            self.logger.error("Please set PIHOLE_HOST in .env file")
             exit(1)
 
         if self.target_host == 'npm.example.com':
-            self.logger.infoger.error("Please set NPM_TARGET_HOST in .env file")
+            self.logger.error("Please set NPM_TARGET_HOST in .env file")
             exit(1)
 
     def setup_ssh(self):
@@ -207,7 +207,7 @@ class NPM2PiHole:
                     if restart_result is not None:
                         self.logger.info("pihole-FTL restarted successfully")
                     else:
-                        self.logger.infoger.warning("WARNING: Failed to restart pihole-FTL")
+                        self.logger.warning("WARNING: Failed to restart pihole-FTL")
         else:
             self.logger.info("No changes detected")
 
