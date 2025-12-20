@@ -5,12 +5,14 @@ import re
 import subprocess
 import time
 import glob
-from datetime import datetime
+import logging
 from typing import List, Set
 
 
 class NPM2PiHole:
     def __init__(self):
+        self.setup_logging()
+
         self.pihole_host = os.getenv('PIHOLE_HOST', '192.168.0.0')
         self.target_host = os.getenv('NPM_TARGET_HOST', 'npm.example.com')
         self.testing_mode = os.getenv('TESTING_MODE', 'false').lower() == 'true'
@@ -19,19 +21,36 @@ class NPM2PiHole:
         self.validate_config()
         self.setup_ssh()
 
-    def log(self, message: str):
-        """Print timestamped log message"""
-        timestamp = datetime.now().strftime('%a %b %d %H:%M:%S UTC %Y')
-        print(f"{timestamp} - {message}")
+    def setup_logging(self):
+        """Configure logging with Docker-friendly format"""
+        # Create custom formatter that matches the original timestamp format
+        class DockerFormatter(logging.Formatter):
+            def format(self, record):
+                # Format: "Sat Dec 20 19:28:59 UTC 2025 - message"
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%a %b %d %H:%M:%S UTC %Y')
+                return f"{timestamp} - {record.getMessage()}"
+
+        # Configure root logger
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+
+        # Create console handler with custom formatter
+        handler = logging.StreamHandler()
+        handler.setFormatter(DockerFormatter())
+        logger.addHandler(handler)
+
+        # Store logger reference
+        self.logger.infoger = logger
 
     def validate_config(self):
         """Validate configuration"""
         if self.pihole_host == '192.168.0.0':
-            self.log("ERROR: Please set PIHOLE_HOST in .env file")
+            self.logger.infoger.error("Please set PIHOLE_HOST in .env file")
             exit(1)
 
         if self.target_host == 'npm.example.com':
-            self.log("ERROR: Please set NPM_TARGET_HOST in .env file")
+            self.logger.infoger.error("Please set NPM_TARGET_HOST in .env file")
             exit(1)
 
     def setup_ssh(self):
@@ -39,14 +58,14 @@ class NPM2PiHole:
         ssh_key_path = '/root/.ssh/id_rsa'
 
         if not os.path.exists(ssh_key_path):
-            self.log("Generating SSH key...")
+            self.logger.info("Generating SSH key...")
             subprocess.run([
                 'ssh-keygen', '-t', 'rsa', '-N', '', '-f', ssh_key_path
             ], check=True)
 
-            self.log(f"SSH key generated. Please copy it to your Pi-hole host:")
-            self.log(f"ssh-copy-id -i {ssh_key_path} {self.pihole_host}")
-            self.log("Then restart this container.")
+            self.logger.info(f"SSH key generated. Please copy it to your Pi-hole host:")
+            self.logger.info(f"ssh-copy-id -i {ssh_key_path} {self.pihole_host}")
+            self.logger.info("Then restart this container.")
             exit(1)
 
         # Add host to known_hosts
@@ -60,27 +79,20 @@ class NPM2PiHole:
     def run_ssh_command(self, command: str) -> str:
         """Execute command on remote Pi-hole via SSH"""
         try:
-            self.log(f"DEBUG: Running SSH command: {command}")
             result = subprocess.run([
                 'ssh', self.pihole_host, command
             ], capture_output=True, text=True, timeout=30)
 
-            self.log(f"DEBUG: SSH return code: {result.returncode}")
-            if result.stdout:
-                self.log(f"DEBUG: SSH stdout: '{result.stdout.strip()}'")
-            if result.stderr:
-                self.log(f"DEBUG: SSH stderr: '{result.stderr.strip()}'")
-
             if result.returncode != 0:
-                self.log(f"SSH command failed with code {result.returncode}: {result.stderr.strip()}")
+                self.logger.info(f"SSH command failed with code {result.returncode}: {result.stderr.strip()}")
                 return ""
 
             return result.stdout.strip()
         except subprocess.TimeoutExpired:
-            self.log("SSH command timed out")
+            self.logger.info("SSH command timed out")
             return ""
         except Exception as e:
-            self.log(f"SSH error: {e}")
+            self.logger.info(f"SSH error: {e}")
             return ""
 
     def get_existing_cname_records(self) -> Set[str]:
@@ -88,10 +100,7 @@ class NPM2PiHole:
         command = "sudo pihole-FTL --config dns.cnameRecords"
         response = self.run_ssh_command(command)
 
-        self.log(f"DEBUG: Raw Pi-hole response: '{response}'")
-
         if not response or response == "[]":
-            self.log("DEBUG: No existing records found")
             return set()
 
         # Parse Pi-hole format: [ domain1,target1, domain2,target2, ... ]
@@ -110,7 +119,6 @@ class NPM2PiHole:
                 if part and ',' in part:
                     records.add(part)
 
-        self.log(f"DEBUG: Parsed existing records: {records}")
         return records
 
     def get_nginx_domains(self) -> Set[str]:
@@ -120,14 +128,14 @@ class NPM2PiHole:
         # Check if NPM directory exists
         npm_dir = '/app/npm'
         if not os.path.exists(npm_dir):
-            self.log("ERROR: /app/npm/ directory not found! Check your volume mount.")
+            self.logger.info("ERROR: /app/npm/ directory not found! Check your volume mount.")
             return domains
 
         # Get all .conf files
         config_files = glob.glob(f"{npm_dir}/*.conf")
         file_count = len(config_files)
 
-        self.log(f"Found {file_count} files in {npm_dir}/ directory")
+        self.logger.info(f"Found {file_count} files in {npm_dir}/ directory")
 
         # Extract server_name from each file
         for config_file in config_files:
@@ -147,17 +155,17 @@ class NPM2PiHole:
                             domains.add(domain)
 
             except Exception as e:
-                self.log(f"Error reading {config_file}: {e}")
+                self.logger.info(f"Error reading {config_file}: {e}")
 
         return domains
 
     def update_cname_records(self, domains: Set[str]):
         """Update CNAME records on Pi-hole"""
         if not domains:
-            self.log("No domains to process")
+            self.logger.info("No domains to process")
             return
 
-        self.log(f"Processing {len(domains)} domains for CNAME records")
+        self.logger.info(f"Processing {len(domains)} domains for CNAME records")
 
         # Get existing records
         existing_records = self.get_existing_cname_records()
@@ -170,9 +178,9 @@ class NPM2PiHole:
             record = f"{domain},{self.target_host}"
 
             if record in existing_records:
-                self.log(f"CNAME record already exists: {domain} -> {self.target_host}")
+                self.logger.info(f"CNAME record already exists: {domain} -> {self.target_host}")
             else:
-                self.log(f"Adding CNAME record: {domain} -> {self.target_host}")
+                self.logger.info(f"Adding CNAME record: {domain} -> {self.target_host}")
                 new_records.add(record)
                 added_count += 1
 
@@ -185,31 +193,31 @@ class NPM2PiHole:
             command = f"sudo pihole-FTL --config dns.cnameRecords '{formatted_records}'"
 
             if self.testing_mode:
-                self.log(f"[TEST] Would execute: {command}")
-                self.log(f"[TEST] Would update {added_count} CNAME records and restart pihole-FTL")
+                self.logger.info(f"[TEST] Would execute: {command}")
+                self.logger.info(f"[TEST] Would update {added_count} CNAME records and restart pihole-FTL")
             else:
                 result = self.run_ssh_command(command)
                 if result is not None:  # Command succeeded
-                    self.log("CNAME records updated successfully")
-                    self.log(f"Updated {added_count} CNAME records")
+                    self.logger.info("CNAME records updated successfully")
+                    self.logger.info(f"Updated {added_count} CNAME records")
 
                     # Restart pihole-FTL
-                    self.log("Restarting pihole-FTL to apply CNAME changes...")
+                    self.logger.info("Restarting pihole-FTL to apply CNAME changes...")
                     restart_result = self.run_ssh_command("sudo systemctl restart pihole-FTL")
                     if restart_result is not None:
-                        self.log("pihole-FTL restarted successfully")
+                        self.logger.info("pihole-FTL restarted successfully")
                     else:
-                        self.log("WARNING: Failed to restart pihole-FTL")
+                        self.logger.infoger.warning("WARNING: Failed to restart pihole-FTL")
         else:
-            self.log("No changes detected")
+            self.logger.info("No changes detected")
 
     def run_check(self):
         """Run a single check cycle"""
-        self.log("Starting Check")
+        self.logger.info("Starting Check")
 
         # Get domains from NPM configs
         current_domains = self.get_nginx_domains()
-        self.log(f"Total domains found: {len(current_domains)}")
+        self.logger.info(f"Total domains found: {len(current_domains)}")
 
         if current_domains:
             # Update CNAME records
@@ -217,21 +225,21 @@ class NPM2PiHole:
 
     def run(self):
         """Main run loop"""
-        self.log("Starting")
+        self.logger.info("Starting")
         if self.testing_mode:
-            self.log("*** TESTING MODE ENABLED - No changes will be applied ***")
-        self.log(f"Check interval: {self.sleep_interval} seconds")
+            self.logger.info("*** TESTING MODE ENABLED - No changes will be applied ***")
+        self.logger.info(f"Check interval: {self.sleep_interval} seconds")
 
         while True:
             try:
                 self.run_check()
-                self.log(f"Sleeping for {self.sleep_interval} seconds...")
+                self.logger.info(f"Sleeping for {self.sleep_interval} seconds...")
                 time.sleep(self.sleep_interval)
             except KeyboardInterrupt:
-                self.log("Shutting down...")
+                self.logger.info("Shutting down...")
                 break
             except Exception as e:
-                self.log(f"Error in main loop: {e}")
+                self.logger.error(f"Error in main loop: {e}")
                 time.sleep(60)  # Wait a minute before retrying
 
 
