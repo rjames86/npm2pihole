@@ -4,7 +4,7 @@ services:
     env_file: .env
     restart: unless-stopped
     volumes:
-        # Path to Nginx Proxy Manager's data/nginx/proxy_host folder.
-      - /path/to/npm/data/nginx/proxy_host/:/app/npm/:ro
-        # SSH key(s) for remote Pi-hole access
-      - ./ssh/:/root/.ssh/
+      # Path to Nginx Proxy Manager's data/nginx/proxy_host folder.
+      - ../npm/npm/data/nginx/proxy_host/:/app/npm/:ro 
+      - ./ssh/:/root/.ssh/ # SSH key(s) for remote Pi-hole access
+networks: {}

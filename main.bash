@@ -43,11 +43,16 @@ fi
 # Ensure the Pi-hole host is known
 ssh-keyscan -H "$pihole_host" >> /root/.ssh/known_hosts 2>/dev/null
 
-# Add CNAME record using Pi-hole 6 syntax via SSH
-add_cname_record() {
-    local domain="$1"
-    local target="$2"
-    echo $(date) - Adding CNAME record: "$domain" -> "$target"
+# Update all CNAME records at once using Pi-hole 6 syntax via SSH
+update_cname_records() {
+    local -a new_domains=("$@")
+
+    if [ ${#new_domains[@]} -eq 0 ]; then
+        echo $(date) - No new domains to process
+        return 0
+    fi
+
+    echo $(date) - Processing ${#new_domains[@]} domains for CNAME records
 
     # Get existing CNAME records from remote Pi-hole
     existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
@@ -57,60 +62,41 @@ add_cname_record() {
         existing_records="[]"
     fi
 
-    # Check if record already exists
-    if echo "$existing_records" | jq -r '.[]' | grep -q "^$domain,$target$"; then
-        echo $(date) - CNAME record already exists: "$domain" -> "$target"
-        return 0
-    fi
+    # Convert existing records to a format we can work with
+    existing_array=$(echo "$existing_records" | jq -r '.[]' 2>/dev/null || echo "")
 
-    # Add new record to the array using jq
-    new_records=$(echo "$existing_records" | jq --arg new_record "$domain,$target" '. + [$new_record]')
+    # Build new records array starting with existing records
+    new_records="$existing_records"
 
-    # Set the new CNAME records (Pi-hole 6 expects the format with spaces inside brackets)
-    formatted_records=$(echo "$new_records" | jq -c '.' | sed 's/\[/ [ /; s/\]/ ] /')
+    # Add each new domain that doesn't already exist
+    for domain in "${new_domains[@]}"; do
+        domain_record="$domain,$target_host"
+        if echo "$existing_array" | grep -q "^$domain_record$"; then
+            echo $(date) - CNAME record already exists: "$domain" -> "$target_host"
+        else
+            echo $(date) - Adding CNAME record: "$domain" -> "$target_host"
+            new_records=$(echo "$new_records" | jq --arg new_record "$domain_record" '. + [$new_record]')
+            n=$((n + 1))
+        fi
+    done
 
-    # Execute the command on remote Pi-hole via SSH (or just print in testing mode)
-    if [ "${testing_mode,,}" = "true" ]; then
-        echo $(date) - "[TEST] Would execute: sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
-        echo $(date) - "[TEST] Would restart pihole-FTL service"
-    else
-        ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
-        echo $(date) - CNAME record added successfully
-        # Mark that FTL restart is needed
-        restart_needed=true
+    # Only update if there are changes
+    if [ $n -gt 0 ]; then
+        # Set the new CNAME records (Pi-hole 6 expects the format with spaces inside brackets)
+        formatted_records=$(echo "$new_records" | jq -c '.' | sed 's/\[/ [ /; s/\]/ ] /')
+
+        # Execute the command on remote Pi-hole via SSH (or just print in testing mode)
+        if [ "${testing_mode,,}" = "true" ]; then
+            echo $(date) - "[TEST] Would execute: sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
+        else
+            ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
+            echo $(date) - CNAME records updated successfully
+            # Mark that FTL restart is needed
+            restart_needed=true
+        fi
     fi
 }
 
-# Check and add CNAME record for domain
-check_and_add_cname() {
-    #makes sure input is not empty
-    if [ "$1" == "" ]; then
-        echo $(date) - "Missing <domain>"
-        return 1
-    fi
-
-    local domain="$1"
-    # Use the target host from environment variable
-
-    echo $(date) - Checking CNAME for \"$domain\"
-
-    # Get current CNAME records from remote Pi-hole
-    existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
-
-    if [ -z "$existing_records" ]; then
-        existing_records="[]"
-    fi
-
-    # Check if this domain already has a CNAME record using jq
-    if echo "$existing_records" | jq -r '.[]' | grep -q "^$domain,"; then
-        echo $(date) - CNAME record already exists for "$domain"
-    else
-        echo $(date) - Adding CNAME record for "$domain"
-        add_cname_record "$domain" "$target_host"
-        n=$((n + 1))
-    fi
-    echo
-}
 
 main() {
     echo $(date) - Starting Check
@@ -143,17 +129,25 @@ main() {
 #dev     echo "check - check"
 #dev     echo "  ""${#domains1[@]}""   -   ""${#domains2[@]}"
     if [ "${domains1[*]}" != "${domains2[*]}" ]; then
-#dev         echo found new domains
+        echo $(date) - Found new domains, processing CNAME updates...
+
+        # Collect all domains into a single array for batch processing
+        all_domains=()
         for i in "${domains1[@]}"; do
-        #a temp fix for npm entries with more then 1 domain.
+            #a temp fix for npm entries with more then 1 domain.
             for a in $i; do
-                check_and_add_cname "$a"
+                all_domains+=("$a")
             done
         done
+
+        # Update all CNAME records in a single batch
+        update_cname_records "${all_domains[@]}"
+
         domains2=("${domains1[@]}")
+
         if [ $n != 0 ]; then
             if [ "${testing_mode,,}" = "true" ]; then
-                echo $(date) - "[TEST] Would update $n CNAME records"
+                echo $(date) - "[TEST] Would update $n CNAME records and restart pihole-FTL"
             else
                 echo $(date) - Updated $n CNAME records
 
