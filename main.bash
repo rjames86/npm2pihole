@@ -73,37 +73,49 @@ update_cname_records() {
     echo $(date) - "DEBUG: Parsed existing array:"
     echo "$existing_array"
 
-    # Build new records array starting with existing records
-    new_records="$existing_records"
+    # Start with existing records and add new ones
+    new_records_array=()
+
+    # Add existing records to the array
+    if [ -n "$existing_array" ]; then
+        while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                new_records_array+=("$line")
+            fi
+        done <<< "$existing_array"
+    fi
 
     # Add each new domain that doesn't already exist
     for domain in "${new_domains[@]}"; do
         domain_record="$domain,$target_host"
         echo $(date) - "DEBUG: Checking if '$domain_record' exists in existing records"
-        if echo "$existing_array" | grep -q "^$domain_record$"; then
+
+        # Check if this exact record exists in the existing records
+        if echo "$existing_records" | grep -q "$domain_record"; then
             echo $(date) - CNAME record already exists: "$domain" -> "$target_host"
         else
             echo $(date) - Adding CNAME record: "$domain" -> "$target_host"
-            new_records=$(echo "$new_records" | jq --arg new_record "$domain_record" '. + [$new_record]')
+            new_records_array+=("$domain_record")
             n=$((n + 1))
         fi
     done
 
     # Only update if there are changes
     if [ $n -gt 0 ]; then
-        # Create the properly quoted format for Pi-hole 6
-        # Convert JSON array to Pi-hole format: [ "item1", "item2" ]
+        # Create the properly quoted format for Pi-hole 6: [ "item1", "item2" ]
         formatted_records="[ "
         first=true
-        while IFS= read -r record; do
+        for record in "${new_records_array[@]}"; do
             if [ "$first" = true ]; then
                 first=false
             else
                 formatted_records+=", "
             fi
             formatted_records+="\"$record\""
-        done < <(echo "$new_records" | jq -r '.[]')
+        done
         formatted_records+=" ]"
+
+        echo $(date) - "DEBUG: Final formatted records: $formatted_records"
 
         # Execute the command on remote Pi-hole via SSH (or just print in testing mode)
         if [ "${testing_mode,,}" = "true" ]; then

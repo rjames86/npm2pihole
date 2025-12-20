@@ -1,5 +1,5 @@
-FROM bash:5.2.37
-RUN apk add --no-cache openssh-client jq
+FROM python:3.11-alpine
+RUN apk add --no-cache openssh-client
 WORKDIR /app
-COPY main.bash /app
-CMD bash main.bash
+COPY main.py /app
+CMD python main.py
