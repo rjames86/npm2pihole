@@ -6,6 +6,7 @@ n=0
 pihole_host=$PIHOLE_HOST
 testing_mode=$TESTING_MODE
 target_host=$NPM_TARGET_HOST
+sleep_interval=${SLEEP_INTERVAL:-900}  # Default to 15 minutes (900 seconds)
 restart_needed=false
 declare -a domains1
 declare -a domains2
@@ -13,6 +14,7 @@ echo $(date) - Starting
 if [ "${testing_mode,,}" = "true" ]; then
     echo $(date) - "*** TESTING MODE ENABLED - No changes will be applied ***"
 fi
+echo $(date) - "Check interval: ${sleep_interval} seconds"
 
 #check config
 if [ "$pihole_host" = '192.168.0.0' ]; then
@@ -166,6 +168,6 @@ main() {
 
 while true; do
     main
-#dev    echo $(date) - sleeping
-    sleep 15
+    echo $(date) - "Sleeping for ${sleep_interval} seconds..."
+    sleep "$sleep_interval"
 done
