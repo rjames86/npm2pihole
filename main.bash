@@ -61,15 +61,17 @@ update_cname_records() {
 
     echo $(date) - "DEBUG: Raw existing records: '$existing_records'"
 
-    # If no existing records or invalid JSON, start with empty array
-    if [ -z "$existing_records" ] || ! echo "$existing_records" | jq . >/dev/null 2>&1; then
-        echo $(date) - "DEBUG: Invalid JSON or empty, starting fresh"
-        existing_records="[]"
+    # Parse Pi-hole's format: [ item1, item2, item3 ] (not valid JSON)
+    if [ -z "$existing_records" ] || [ "$existing_records" = "[]" ]; then
+        echo $(date) - "DEBUG: No existing records"
+        existing_array=""
+    else
+        # Extract items between brackets and split by comma
+        existing_array=$(echo "$existing_records" | sed 's/^\[ *//; s/ *\]$//; s/, */\n/g' | sed 's/^ *//; s/ *$//')
     fi
 
-    # Convert existing records to a format we can work with
-    existing_array=$(echo "$existing_records" | jq -r '.[]' 2>/dev/null || echo "")
-    echo $(date) - "DEBUG: Parsed existing array: '$existing_array'"
+    echo $(date) - "DEBUG: Parsed existing array:"
+    echo "$existing_array"
 
     # Build new records array starting with existing records
     new_records="$existing_records"
