@@ -60,12 +60,19 @@ class NPM2PiHole:
     def run_ssh_command(self, command: str) -> str:
         """Execute command on remote Pi-hole via SSH"""
         try:
+            self.log(f"DEBUG: Running SSH command: {command}")
             result = subprocess.run([
                 'ssh', self.pihole_host, command
             ], capture_output=True, text=True, timeout=30)
 
+            self.log(f"DEBUG: SSH return code: {result.returncode}")
+            if result.stdout:
+                self.log(f"DEBUG: SSH stdout: '{result.stdout.strip()}'")
+            if result.stderr:
+                self.log(f"DEBUG: SSH stderr: '{result.stderr.strip()}'")
+
             if result.returncode != 0:
-                self.log(f"SSH command failed: {result.stderr.strip()}")
+                self.log(f"SSH command failed with code {result.returncode}: {result.stderr.strip()}")
                 return ""
 
             return result.stdout.strip()
@@ -81,23 +88,29 @@ class NPM2PiHole:
         command = "sudo pihole-FTL --config dns.cnameRecords"
         response = self.run_ssh_command(command)
 
+        self.log(f"DEBUG: Raw Pi-hole response: '{response}'")
+
         if not response or response == "[]":
+            self.log("DEBUG: No existing records found")
             return set()
 
-        # Parse Pi-hole format: [ item1, item2, item3 ]
-        # Remove brackets and split by comma
+        # Parse Pi-hole format: [ domain1,target1, domain2,target2, ... ]
+        # Each record is "domain,target" separated by ", " (comma-space)
         response = response.strip()
         if response.startswith('[') and response.endswith(']'):
             response = response[1:-1]  # Remove brackets
 
-        # Split by comma and clean up whitespace
+        # Split by ", " to get individual CNAME records
         records = set()
         if response.strip():
-            for record in response.split(','):
-                record = record.strip()
-                if record:
-                    records.add(record)
+            # Split by ", " (comma followed by space) to get each domain,target pair
+            parts = response.split(', ')
+            for part in parts:
+                part = part.strip()
+                if part and ',' in part:
+                    records.add(part)
 
+        self.log(f"DEBUG: Parsed existing records: {records}")
         return records
 
     def get_nginx_domains(self) -> Set[str]:
