@@ -1,12 +1,10 @@
 services:
   npm2pihole:
     image: ghcr.io/c00ldude1oo/npm2pihole:latest
-    env_file: config.env
+    env_file: .env
     restart: unless-stopped
     volumes:
-        # Path to Nginx Proxy Mangers data/nginx/proxy_host folder.
+        # Path to Nginx Proxy Manager's data/nginx/proxy_host folder.
       - /path/to/npm/data/nginx/proxy_host/:/app/npm/:ro
-        # PiHole's /etc/pihole/custom.list file. comment if remote pihole
-#      - /path/to/piholes/data/custom.list:/app/custom.list
-        # SSH key(s) for sftp. comment if unused
+        # SSH key(s) for remote Pi-hole access
       - ./ssh/:/root/.ssh/

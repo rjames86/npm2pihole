@@ -1,125 +1,153 @@
 #!/usr/bin/env bash
 #made by @c00ldude1oo
+#updated for Pi-hole 6 CNAME records
 sleep 1
 n=0
-ip=$NPM_IP
-usftp=$USE_SFTP
-sip=$SFTP_IP
+pihole_host=$PIHOLE_HOST
+testing_mode=$TESTING_MODE
+target_host=$NPM_TARGET_HOST
+restart_needed=false
 declare -a domains1
 declare -a domains2
 echo $(date) - Starting
-#dev echo - $ip - $usftp - $sip 
+if [ "${testing_mode,,}" = "true" ]; then
+    echo $(date) - "*** TESTING MODE ENABLED - No changes will be applied ***"
+fi
+
 #check config
-if [ "$ip" = '192.168.0.0' ]; then
-    echo Please set IP in config.env and restart.
+if [ "$pihole_host" = '192.168.0.0' ]; then
+    echo Please set PIHOLE_HOST in config.env and restart.
     exit 1
 fi
-if [ "${usftp,,}" != 'true' ] && [ "${usftp,,}" != 'false' ]; then
-    echo USE_SFTP must be set to "true" or "false" please set in config.env and restart.
+
+if [ "$target_host" = 'npm.example.com' ]; then
+    echo Please set NPM_TARGET_HOST in config.env and restart.
     exit 1
 fi
-#checks if using sftp
-if "${usftp,,}"; then
-    if [ "$sip" = '192.168.0.0' ]; then
-        echo Please set SFTP_IP in config.env and restart.
-        exit 1
-    fi
-    echo $(date) - Using sftp to get dns list
-    # checks if ssh key has been made
-    if [ ! -f /root/.ssh/id_rsa ]; then
-        # generate ssh key
-        ssh-keygen -t rsa -N '' -f /root/.ssh/id_rsa
-        touch INSTALL_SSH_KEY
-        echo $(date) - install ssh key and restart container. run ssh-copy-id -i ssh/id_rsa "$sip"
-        exit 1
-    fi
-    # make sure the host is known so sftp wont have a user prompt
-    ssh -o StrictHostKeyChecking=accept-new "$sip" echo hi
-    echo true
-else
-    echo Not using sftp to get dns list
-    if [ ! -f /app/custom.list ]; then echo $(date) - "Please make sure piholes local dns file(custom.list) is mounted" && exit; fi
+
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+    echo $(date) - "jq is required for JSON manipulation. Please install jq."
+    exit 1
 fi
-# Gets file from remote pihole using sftp
-getsftp() {
-    echo $(date) - getting dns list
-    sftp "$sip":/etc/pihole <<EOF
-get custom.list
-EOF
+
+# Check if SSH key exists
+if [ ! -f /root/.ssh/id_rsa ]; then
+    ssh-keygen -t rsa -N '' -f /root/.ssh/id_rsa
+    echo $(date) - "SSH key generated. Please copy it to your Pi-hole host:"
+    echo "ssh-copy-id -i /root/.ssh/id_rsa $pihole_host"
+    echo "Then restart this container."
+    exit 1
+fi
+
+# Ensure the Pi-hole host is known
+ssh-keyscan -H "$pihole_host" >> /root/.ssh/known_hosts 2>/dev/null
+
+# Add CNAME record using Pi-hole 6 syntax via SSH
+add_cname_record() {
+    local domain="$1"
+    local target="$2"
+    echo $(date) - Adding CNAME record: "$domain" -> "$target"
+
+    # Get existing CNAME records from remote Pi-hole
+    existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
+
+    # If no existing records, start with empty array
+    if [ -z "$existing_records" ]; then
+        existing_records="[]"
+    fi
+
+    # Check if record already exists
+    if echo "$existing_records" | jq -r '.[]' | grep -q "^$domain,$target$"; then
+        echo $(date) - CNAME record already exists: "$domain" -> "$target"
+        return 0
+    fi
+
+    # Add new record to the array using jq
+    new_records=$(echo "$existing_records" | jq --arg new_record "$domain,$target" '. + [$new_record]')
+
+    # Set the new CNAME records (Pi-hole 6 expects the format with spaces inside brackets)
+    formatted_records=$(echo "$new_records" | jq -c '.' | sed 's/\[/ [ /; s/\]/ ] /')
+
+    # Execute the command on remote Pi-hole via SSH (or just print in testing mode)
+    if [ "${testing_mode,,}" = "true" ]; then
+        echo $(date) - "[TEST] Would execute: sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
+        echo $(date) - "[TEST] Would restart pihole-FTL service"
+    else
+        ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords '$formatted_records'"
+        echo $(date) - CNAME record added successfully
+        # Mark that FTL restart is needed
+        restart_needed=true
+    fi
 }
-# Puts file from remote pihole using sftp
-putsftp() {
-    echo $(date) - Uploading new dns list
-    sftp "$sip":/etc/pihole <<EOF
-rename custom.list custom.list.bak
-put custom.list
-EOF
-}
-# Checks to pihole custom dns list if the domain is set
-checkdnsfile() {
+
+# Check and add CNAME record for domain
+check_and_add_cname() {
     #makes sure input is not empty
     if [ "$1" == "" ]; then
         echo $(date) - "Missing <domain>"
         return 1
     fi
-    echo $(date) - Checking \""$*"\"
-    domain=$1
-    checkdns() {
-#dev         echo Checkdns input is - \""$*"\"
-#dev         echo test - "$1" - "$2"
-        if [ "$domain" == "$2" ]; then
-            if [ "$ip" == "$1" ]; then
-                echo $(date) - Found
-            else
-                # Found but IP doesnt match
-                echo $(date) - Setting IP. Was "$1"
-                #filters out the wrong listing
-                grep -v "$1 $2" custom.list >>list
-                # adds to correct one
-                echo "$ip" "$domain" >>list
-                # renames it back
-                cat list >custom.list
-                # removes copy
-                rm list
-                # adds to the counter for total edited domains
-                n=$((n + 1))
-            fi
-        else
-            # not in pihole records
-            echo $(date) - Not found adding.
-            # adds IP and domain to file
-            echo "$ip" "$domain" >>custom.list
-            # adds to the counter for total edited domains
-            n=$((n + 1))
-        fi
-        echo
-    }
-    test=$(grep " $domain\$" custom.list)
-    # shellcheck disable=SC2086
-    checkdns $test
+
+    local domain="$1"
+    # Use the target host from environment variable
+
+    echo $(date) - Checking CNAME for \"$domain\"
+
+    # Get current CNAME records from remote Pi-hole
+    existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
+
+    if [ -z "$existing_records" ]; then
+        existing_records="[]"
+    fi
+
+    # Check if this domain already has a CNAME record using jq
+    if echo "$existing_records" | jq -r '.[]' | grep -q "^$domain,"; then
+        echo $(date) - CNAME record already exists for "$domain"
+    else
+        echo $(date) - Adding CNAME record for "$domain"
+        add_cname_record "$domain" "$target_host"
+        n=$((n + 1))
+    fi
+    echo
 }
+
 main() {
 #dev     echo Starting Check
     domains1=()
     # reads all the files in npm and gets the domains out of them then formats and puts them in the array
-    for file in npm/*; do domains1+=("$(grep "server_name" "$file" | sed "s/  server_name //; s/;//")"); done
+    for file in npm/*; do
+        if [ -f "$file" ]; then
+            domains1+=("$(grep "server_name" "$file" | sed "s/  server_name //; s/;//")")
+        fi
+    done
 #dev     echo Found domains from npm
 #dev     echo "this  - last"
 #dev     echo "check - check"
 #dev     echo "  ""${#domains1[@]}""   -   ""${#domains2[@]}"
     if [ "${domains1[*]}" != "${domains2[*]}" ]; then
 #dev         echo found new domains
-        if "$usftp"; then getsftp; fi
-        for i in "${domains1[@]}"; do 
+        for i in "${domains1[@]}"; do
         #a temp fix for npm entries with more then 1 domain.
             for a in $i; do
-                checkdnsfile "$a"
+                check_and_add_cname "$a"
             done
         done
         domains2=("${domains1[@]}")
         if [ $n != 0 ]; then
-            echo $(date) - Updated $n records
-            if "$usftp"; then putsftp; fi
+            if [ "${testing_mode,,}" = "true" ]; then
+                echo $(date) - "[TEST] Would update $n CNAME records"
+            else
+                echo $(date) - Updated $n CNAME records
+
+                # Restart Pi-hole FTL if changes were made
+                if [ "$restart_needed" = "true" ]; then
+                    echo $(date) - Restarting pihole-FTL to apply CNAME changes...
+                    ssh "$pihole_host" "sudo systemctl restart pihole-FTL"
+                    echo $(date) - pihole-FTL restarted successfully
+                    restart_needed=false
+                fi
+            fi
         fi
     fi
     n=0
