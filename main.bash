@@ -59,8 +59,11 @@ update_cname_records() {
     # Get existing CNAME records from remote Pi-hole
     existing_records=$(ssh "$pihole_host" "sudo pihole-FTL --config dns.cnameRecords" 2>/dev/null)
 
-    # If no existing records, start with empty array
-    if [ -z "$existing_records" ]; then
+    echo $(date) - "Raw Pi-hole response: '$existing_records'"
+
+    # If no existing records or invalid JSON, start with empty array
+    if [ -z "$existing_records" ] || ! echo "$existing_records" | jq . >/dev/null 2>&1; then
+        echo $(date) - "No existing records or invalid JSON, starting with empty array"
         existing_records="[]"
     fi
 
