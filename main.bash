@@ -113,15 +113,32 @@ check_and_add_cname() {
 }
 
 main() {
-#dev     echo Starting Check
+    echo $(date) - Starting Check
+
+    # Debug: Check if npm directory exists and list files
+    if [ -d "npm" ]; then
+        file_count=$(ls -1 npm/ 2>/dev/null | wc -l)
+        echo $(date) - Found $file_count files in npm/ directory
+        if [ $file_count -gt 0 ]; then
+            echo $(date) - Files: $(ls npm/ | head -5)$([ $file_count -gt 5 ] && echo "... and $(($file_count - 5)) more")
+        fi
+    else
+        echo $(date) - ERROR: npm/ directory not found! Check your volume mount.
+        return
+    fi
+
     domains1=()
     # reads all the files in npm and gets the domains out of them then formats and puts them in the array
     for file in npm/*; do
         if [ -f "$file" ]; then
-            domains1+=("$(grep "server_name" "$file" | sed "s/  server_name //; s/;//")")
+            server_names=$(grep "server_name" "$file" | sed "s/  server_name //; s/;//")
+            if [ -n "$server_names" ]; then
+                echo $(date) - Found domains in $(basename "$file"): $server_names
+                domains1+=("$server_names")
+            fi
         fi
     done
-#dev     echo Found domains from npm
+    echo $(date) - Total domains found: ${#domains1[@]}
 #dev     echo "this  - last"
 #dev     echo "check - check"
 #dev     echo "  ""${#domains1[@]}""   -   ""${#domains2[@]}"
