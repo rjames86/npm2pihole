@@ -197,17 +197,19 @@ class NPM2PiHole:
                 self.logger.info(f"[TEST] Would update {added_count} CNAME records and restart pihole-FTL")
             else:
                 result = self.run_ssh_command(command)
-                if result is not None:  # Command succeeded
+                if result != "":  # Command succeeded (returns empty string on failure)
                     self.logger.info("CNAME records updated successfully")
                     self.logger.info(f"Updated {added_count} CNAME records")
 
                     # Restart pihole-FTL
                     self.logger.info("Restarting pihole-FTL to apply CNAME changes...")
                     restart_result = self.run_ssh_command("sudo systemctl restart pihole-FTL")
-                    if restart_result is not None:
+                    if restart_result != "":
                         self.logger.info("pihole-FTL restarted successfully")
                     else:
-                        self.logger.warning("WARNING: Failed to restart pihole-FTL")
+                        self.logger.error("Failed to restart pihole-FTL")
+                else:
+                    self.logger.error(f"Failed to update CNAME records. Command: {command}")
         else:
             self.logger.info("No changes detected")
 
