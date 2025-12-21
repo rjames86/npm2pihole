@@ -4,7 +4,11 @@ services:
     env_file: .env
     restart: unless-stopped
     volumes:
-      # Path to Nginx Proxy Manager's data/nginx/proxy_host folder.
-      - /Users/rjames/Documents/dockge/stacks/npm/npm/data/nginx/proxy_host/:/app/npm/:ro
-      - ./ssh/:/root/.ssh/ # SSH key(s) for remote Pi-hole access
+      # Docker socket for restarting NPM container
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Path to Nginx Proxy Manager's config directory (read-write to generate configs)
+      - /Users/rjames/Documents/dockge/stacks/npm/npm/data/nginx/proxy_host/:/app/npm-configs/
+      # SSH key(s) for remote Pi-hole access
+      - ./ssh/:/root/.ssh/
+
 networks: {}

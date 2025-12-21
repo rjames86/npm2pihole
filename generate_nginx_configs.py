@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+
+import os
+import shutil
+import logging
+from datetime import datetime
+from pathlib import Path
+
+
+class NginxConfigGenerator:
+    def __init__(self, logger):
+        self.logger = logger
+
+    def load_services_from_env(self):
+        """Load services configuration from environment variables"""
+        services = []
+        i = 1
+
+        while True:
+            # Look for SERVICE_1_NAME, SERVICE_1_IP, SERVICE_1_PORT, etc.
+            name_key = f"SERVICE_{i}_NAME"
+            ip_key = f"SERVICE_{i}_IP"
+            port_key = f"SERVICE_{i}_PORT"
+
+            name = os.getenv(name_key)
+            if not name:  # No more services
+                break
+
+            ip = os.getenv(ip_key)
+            port = os.getenv(port_key)
+
+            if not ip or not port:
+                self.logger.warning(f"Incomplete service config for {name}: missing IP or PORT")
+                i += 1
+                continue
+
+            try:
+                port = int(port)
+                services.append({
+                    "hostname": name,
+                    "server_ip": ip,
+                    "port": port
+                })
+                self.logger.info(f"Loaded service: {name} -> {ip}:{port}")
+            except ValueError:
+                self.logger.error(f"Invalid port for service {name}: {port}")
+
+            i += 1
+
+        return services
+
+    def backup_existing_files(self, output_dir):
+        """Backup existing .conf files before generating new ones"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join(output_dir, f"backup_{timestamp}")
+
+        # Find existing .conf files
+        existing_files = []
+        if os.path.exists(output_dir):
+            existing_files = [f for f in os.listdir(output_dir)
+                             if f.endswith('.conf')]
+
+        if existing_files:
+            os.makedirs(backup_dir, exist_ok=True)
+            for file in existing_files:
+                shutil.copy2(os.path.join(output_dir, file), backup_dir)
+            self.logger.info(f"Backed up {len(existing_files)} existing .conf files to {backup_dir}")
+            return backup_dir
+        else:
+            self.logger.info("No existing .conf files found to backup")
+            return None
+
+    def generate_nginx_config(self, hostname, server_ip, port, file_number, domain_suffix):
+        """Generate nginx configuration content"""
+        server_name = f"{hostname}.{domain_suffix}"
+
+        config_content = f"""# ------------------------------------------------------------
+# {server_name}
+# ------------------------------------------------------------
+
+map $scheme $hsts_header {{
+    https   "max-age=63072000; preload";
+}}
+
+server {{
+  set $forward_scheme http;
+  set $server         "{server_ip}";
+  set $port           {port};
+
+  listen 80;
+  listen [::]:80;
+  listen 443 ssl;
+  listen [::]:443 ssl;
+
+  server_name {server_name};
+
+  http2 on;
+
+  # Let's Encrypt SSL
+  include conf.d/include/letsencrypt-acme-challenge.conf;
+  include conf.d/include/ssl-cache.conf;
+  include conf.d/include/ssl-ciphers.conf;
+  ssl_certificate /etc/letsencrypt/live/npm-1/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/npm-1/privkey.pem;
+
+  # Force SSL
+  include conf.d/include/force-ssl.conf;
+
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $http_connection;
+  proxy_http_version 1.1;
+
+  access_log /data/logs/proxy-host-{file_number}_access.log proxy;
+  error_log /data/logs/proxy-host-{file_number}_error.log warn;
+
+  location / {{
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $http_connection;
+    proxy_http_version 1.1;
+
+    # Proxy!
+    include conf.d/include/proxy.conf;
+  }}
+
+  # Custom
+  include /data/nginx/custom/server_proxy[.]conf;
+}}
+"""
+        return config_content
+
+    def generate_configs(self, services, domain_suffix, output_dir):
+        """Generate all nginx configuration files"""
+        if not services:
+            self.logger.warning("No services configured")
+            return []
+
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Backup existing files
+        self.backup_existing_files(output_dir)
+
+        generated_files = []
+
+        for i, service in enumerate(services, 1):
+            filename = f"{i}.conf"
+            filepath = os.path.join(output_dir, filename)
+
+            # Generate config content
+            content = self.generate_nginx_config(
+                service["hostname"],
+                service["server_ip"],
+                service["port"],
+                i,
+                domain_suffix
+            )
+
+            # Write file
+            with open(filepath, 'w') as f:
+                f.write(content)
+
+            server_name = f"{service['hostname']}.{domain_suffix}"
+            self.logger.info(f"Generated {filename} for {server_name}")
+            generated_files.append(filepath)
+
+        self.logger.info(f"Successfully generated {len(services)} nginx configuration files")
+        return generated_files

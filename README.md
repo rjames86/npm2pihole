@@ -1,75 +1,60 @@
-# NPM2Pihole
+# NPM2PiHole - Unified Domain Management
 
-A bash script in a docker container that will check nginx proxy manager for configured domains and will add them to pihole's local DNS automatically
+**Single Source of Truth for NPM and Pi-hole Domain Configuration**
 
-## PREREQUISITES
+This tool automatically generates Nginx Proxy Manager configurations AND keeps Pi-hole CNAME records in perfect sync - all from a single configuration file.
 
-Nginx Proxy Manager (NPM) *\*NPM2Pihole must be on same host as NPM*
+## 🎯 What This Does
 
-pihole *remote or local host is supported
+1. **Generates NPM configs** from your service definitions
+2. **Restarts NPM container** to pick up new configurations
+3. **Updates Pi-hole CNAME records** to match your domains
+4. **Restarts Pi-hole FTL** to apply DNS changes
 
-## INSTALL
+**Result**: Your reverse proxy and DNS stay perfectly synchronized with zero manual intervention!
 
-1 Setup docker-compose.yml
+## ⚡ Quick Start
 
-```yaml
-services:
-  npm2pihole:
-    image: ghcr.io/c00ldude1oo/npm2pihole:latest
-    env_file: config.env
-    restart: unless-stopped
-    volumes:
-        # Path to Nginx Proxy Mangers data/nginx/proxy_host folder.
-      - /path/to/npm/data/nginx/proxy_host/:/app/npm/:ro
-        # PiHole's /etc/pihole/custom.list file. comment if remote pihole
-#      - /path/to/piholes/data/custom.list:/app/custom.list
-        # SSH key(s) for sftp. comment if unused
-      - ./ssh/:/root/.ssh/
+1. **Copy the example config:**
+   ```bash
+   cp example.env .env
+   ```
+
+2. **Edit `.env` with your services and settings:**
+   ```bash
+   # Your domain and Pi-hole settings
+   DOMAIN_SUFFIX=home.ryanmo.net
+   PIHOLE_HOST=192.168.1.217
+   NPM_TARGET_HOST=npm.home.ryanmo.net
+   NPM_CONTAINER_NAME=npm-app-1
+
+   # Define your services (add as many as you need)
+   SERVICE_1_NAME=grafana
+   SERVICE_1_IP=192.168.1.58
+   SERVICE_1_PORT=3000
+   ```
+
+3. **Test and deploy:**
+   ```bash
+   # Test first
+   echo "TESTING_MODE=true" >> .env
+   docker compose up --build
+
+   # Deploy when ready
+   sed -i 's/TESTING_MODE=true/TESTING_MODE=false/' .env
+   docker compose restart
+   ```
+
+## 🔄 Workflow
 
 ```
-
-2 Setup configs `config.env`
-
-Check below and set up the configs
-
-3 Start docker
-
-```sh
-docker compose up
+Edit .env → Generate NPM configs → Restart NPM → Update Pi-hole CNAMEs → Restart Pi-hole FTL
 ```
 
-After first run you can quit and add the -d flag
+## 🚀 Benefits
 
-## CONFIGS
-
-### config.env
-
-`NPM_IP=192.168.0.0`
-This is set to the IP of the nginx proxy manager
-
-`USE_SFTP=true/false`
-This is to enable/disable use of SFTP to use a remote pihole
-
-`SFTP_IP=192.168.0.0`
-This is set to the IP of the remote pihole
-
-### docker-compose.yml
-
-The docker volumes need to be configured
-
-#### `/app/data:ro`
-
-This needs to be set to the full path of NPMs proxy_hosts folder
-E.g. `path/to/npm/data/nignx/proxy_host:/app/data:ro`
-
-#### `/app/custom.list`
-
-This needs to be set to the full path of pihole's custom DNS list file. *\*only if pihole is on same host*
-
-E.g. `path/to/pihole/etc-pihole/custom.list:/app/custom.list`
-
-#### `/root/.ssh`
-
-If you're not using a remote pihole this can be committed out
-
-E.g. `/home/docker_user/.ssh:/root/.ssh`
+- ✅ **Single source of truth** - Edit services in one place
+- ✅ **Zero manual work** - Configs and DNS update automatically
+- ✅ **Always in sync** - NPM and Pi-hole never get out of sync
+- ✅ **Easy to manage** - Simple environment variable format
+- ✅ **Testing mode** - Safe to test changes before applying
