@@ -5,6 +5,6 @@ services:
     restart: unless-stopped
     volumes:
       # Path to Nginx Proxy Manager's data/nginx/proxy_host folder.
-      - ../npm/npm/data/nginx/proxy_host/:/app/npm/:ro 
+      - /Users/rjames/Documents/dockge/stacks/npm/npm/data/nginx/proxy_host/:/app/npm/:ro
       - ./ssh/:/root/.ssh/ # SSH key(s) for remote Pi-hole access
 networks: {}
