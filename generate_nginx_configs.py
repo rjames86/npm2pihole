@@ -138,7 +138,7 @@ server {{
         os.makedirs(output_dir, exist_ok=True)
 
         # Backup existing files
-        self.backup_existing_files(output_dir)
+        #self.backup_existing_files(output_dir)
 
         generated_files = []
 
