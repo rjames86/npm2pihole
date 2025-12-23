@@ -122,15 +122,16 @@ class NPMAPIManager:
             self.logger.error("Failed to fetch existing proxy hosts")
             return []
 
-    def create_proxy_host(self, domain: str, forward_host: str, forward_port: int) -> Optional[Dict]:
+    def create_proxy_host(self, domain_names: List[str], forward_host: str, forward_port: int) -> Optional[Dict]:
         """Create a new proxy host via NPM API"""
         if self.testing_mode:
-            self.logger.info(f"[TEST] Would create proxy host: {domain} -> {forward_host}:{forward_port}")
-            return {"id": 999, "domain_names": [domain]}
+            domains_str = ", ".join(domain_names)
+            self.logger.info(f"[TEST] Would create proxy host: [{domains_str}] -> {forward_host}:{forward_port}")
+            return {"id": 999, "domain_names": domain_names}
 
         # Payload structure matches the captured request exactly
         payload = {
-            "domain_names": [domain],
+            "domain_names": domain_names,
             "forward_scheme": "http",
             "forward_host": forward_host,
             "forward_port": forward_port,
@@ -150,10 +151,12 @@ class NPMAPIManager:
 
         result = self._make_api_request("POST", "/nginx/proxy-hosts", payload)
         if result:
-            self.logger.info(f"Created proxy host: {domain} -> {forward_host}:{forward_port}")
+            domains_str = ", ".join(domain_names)
+            self.logger.info(f"Created proxy host: [{domains_str}] -> {forward_host}:{forward_port}")
             return result
         else:
-            self.logger.error(f"Failed to create proxy host for {domain}")
+            domains_str = ", ".join(domain_names)
+            self.logger.error(f"Failed to create proxy host for [{domains_str}]")
             return None
 
     def delete_proxy_host(self, host_id: int) -> bool:
@@ -195,15 +198,15 @@ class NPMAPIManager:
                 try:
                     port = int(service['forward_port'])
 
-                    # Create a service entry for each domain name
-                    for domain_name in service['domain_names']:
-                        services.append({
-                            "hostname": domain_name,
-                            "server_ip": service['forward_host'],
-                            "port": port,
-                            "description": service.get('description', '')
-                        })
-                        self.logger.info(f"Loaded service: {domain_name} -> {service['forward_host']}:{port}")
+                    # Create a single service entry with multiple domain names
+                    services.append({
+                        "domain_names": service['domain_names'],
+                        "forward_host": service['forward_host'],
+                        "forward_port": port,
+                        "description": service.get('description', '')
+                    })
+                    domains_str = ", ".join(service['domain_names'])
+                    self.logger.info(f"Loaded service: [{domains_str}] -> {service['forward_host']}:{port}")
 
                 except (ValueError, TypeError):
                     self.logger.error(f"Invalid port for service: {service}")
@@ -232,30 +235,41 @@ class NPMAPIManager:
         # Get existing proxy hosts
         existing_hosts = self.get_existing_proxy_hosts()
 
-        # Build expected domains
-        expected_domains = set()
+        # Build expected domains with domain suffix
+        all_expected_domains = set()
         for service in services:
-            domain = f"{service['hostname']}.{self.domain_suffix}"
-            expected_domains.add(domain)
+            for domain_name in service['domain_names']:
+                full_domain = f"{domain_name}.{self.domain_suffix}"
+                all_expected_domains.add(full_domain)
 
-        # Find existing domains
-        existing_domains = {}
+        # Find existing domains mapped to their host IDs
+        existing_domain_to_host = {}
         for host in existing_hosts:
             for domain in host.get('domain_names', []):
-                existing_domains[domain] = host['id']
+                existing_domain_to_host[domain] = host['id']
 
-        # Delete hosts that shouldn't exist
-        for domain, host_id in existing_domains.items():
-            if domain not in expected_domains:
-                self.logger.info(f"Removing unused proxy host: {domain}")
-                self.delete_proxy_host(host_id)
+        # Delete proxy hosts that shouldn't exist anymore
+        hosts_to_delete = set()
+        for domain, host_id in existing_domain_to_host.items():
+            if domain not in all_expected_domains:
+                hosts_to_delete.add(host_id)
 
-        # Create missing hosts
+        for host_id in hosts_to_delete:
+            self.logger.info(f"Removing unused proxy host ID: {host_id}")
+            self.delete_proxy_host(host_id)
+
+        # Create new proxy hosts for each service
         for service in services:
-            domain = f"{service['hostname']}.{self.domain_suffix}"
-            if domain not in existing_domains:
-                self.logger.info(f"Creating new proxy host: {domain}")
-                self.create_proxy_host(domain, service['server_ip'], service['port'])
+            # Build full domain names with suffix
+            full_domain_names = [f"{name}.{self.domain_suffix}" for name in service['domain_names']]
 
-        self.logger.info(f"Proxy host synchronization complete. Configured {len(expected_domains)} domains")
-        return expected_domains
+            # Check if any of these domains already exist
+            domains_exist = any(domain in existing_domain_to_host for domain in full_domain_names)
+
+            if not domains_exist:
+                domains_str = ", ".join(full_domain_names)
+                self.logger.info(f"Creating new proxy host: [{domains_str}]")
+                self.create_proxy_host(full_domain_names, service['forward_host'], service['forward_port'])
+
+        self.logger.info(f"Proxy host synchronization complete. Configured {len(all_expected_domains)} domains")
+        return all_expected_domains
