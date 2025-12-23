@@ -7,7 +7,7 @@ services:
       # Docker socket for NPM API calls
       - /var/run/docker.sock:/var/run/docker.sock
       # Services configuration file (editable without rebuilds)
-      - ./services.json:/app/services.json
+      - ./data/:/app/data/
       # SSH key(s) for remote Pi-hole access
       - ./ssh/:/root/.ssh/
 

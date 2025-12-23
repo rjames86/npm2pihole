@@ -170,7 +170,7 @@ class NPMAPIManager:
             self.logger.error(f"Failed to delete proxy host ID: {host_id}")
             return False
 
-    def load_services_from_json(self, json_file: str = "/app/services.json") -> List[Dict]:
+    def load_services_from_json(self, json_file: str = "/app/data/services.json") -> List[Dict]:
         """Load services configuration from JSON file"""
         try:
             if not os.path.exists(json_file):
