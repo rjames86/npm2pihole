@@ -1,0 +1,58 @@
+{
+  "services": [
+    {
+      "domain_names": ["pihole"],
+      "forward_host": "192.168.1.217",
+      "forward_port": 80,
+      "description": "Pi-hole Web Interface"
+    },
+    {
+      "domain_names": ["dockge"],
+      "forward_host": "192.168.1.58",
+      "forward_port": 5001,
+      "description": "Dockge Container Manager"
+    },
+    {
+      "domain_names": ["homebridge"],
+      "forward_host": "192.168.1.58",
+      "forward_port": 8581,
+      "description": "Homebridge"
+    },
+    {
+      "domain_names": ["sprinkler"],
+      "forward_host": "192.168.1.158",
+      "forward_port": 8080,
+      "description": "Sprinkler Controller"
+    },
+    {
+      "domain_names": ["npm-admin"],
+      "forward_host": "192.168.1.58",
+      "forward_port": 81,
+      "description": "NPM Admin Interface"
+    },
+    {
+      "domain_names": ["grafana"],
+      "forward_host": "192.168.1.58",
+      "forward_port": 3000,
+      "description": "Grafana"
+    },
+    {
+      "domain_names": ["eink"],
+      "forward_host": "192.168.1.153",
+      "forward_port": 80,
+      "description": "E-ink Display"
+    },
+    {
+      "domain_names": ["ha"],
+      "forward_host": "192.168.1.150",
+      "forward_port": 8123,
+      "description": "Home Assistant"
+    },
+    {
+      "domain_names": ["n8n"],
+      "forward_host": "192.168.1.58",
+      "forward_port": 5678,
+      "description": "N8N Automation"
+    }
+  ]
+}
