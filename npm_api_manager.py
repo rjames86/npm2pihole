@@ -170,51 +170,63 @@ class NPMAPIManager:
             self.logger.error(f"Failed to delete proxy host ID: {host_id}")
             return False
 
-    def load_services_from_env(self) -> List[Dict]:
-        """Load services configuration from environment variables"""
-        services = []
-        i = 1
+    def load_services_from_json(self, json_file: str = "/app/services.json") -> List[Dict]:
+        """Load services configuration from JSON file"""
+        try:
+            if not os.path.exists(json_file):
+                self.logger.error(f"Services configuration file not found: {json_file}")
+                return []
 
-        while True:
-            name_key = f"SERVICE_{i}_NAME"
-            ip_key = f"SERVICE_{i}_IP"
-            port_key = f"SERVICE_{i}_PORT"
+            with open(json_file, 'r') as f:
+                data = json.load(f)
 
-            name = os.getenv(name_key)
-            if not name:
-                break
+            services = []
+            for service in data.get('services', []):
+                # Validate required fields
+                if not all(key in service for key in ['domain_names', 'forward_host', 'forward_port']):
+                    self.logger.warning(f"Skipping incomplete service config: {service}")
+                    continue
 
-            ip = os.getenv(ip_key)
-            port = os.getenv(port_key)
+                # Validate data types
+                if not isinstance(service['domain_names'], list) or not service['domain_names']:
+                    self.logger.warning(f"Invalid domain_names for service: {service}")
+                    continue
 
-            if not ip or not port:
-                self.logger.warning(f"Incomplete service config for {name}: missing IP or PORT")
-                i += 1
-                continue
+                try:
+                    port = int(service['forward_port'])
 
-            try:
-                port = int(port)
-                services.append({
-                    "hostname": name,
-                    "server_ip": ip,
-                    "port": port
-                })
-                self.logger.info(f"Loaded service: {name} -> {ip}:{port}")
-            except ValueError:
-                self.logger.error(f"Invalid port for service {name}: {port}")
+                    # Create a service entry for each domain name
+                    for domain_name in service['domain_names']:
+                        services.append({
+                            "hostname": domain_name,
+                            "server_ip": service['forward_host'],
+                            "port": port,
+                            "description": service.get('description', '')
+                        })
+                        self.logger.info(f"Loaded service: {domain_name} -> {service['forward_host']}:{port}")
 
-            i += 1
+                except (ValueError, TypeError):
+                    self.logger.error(f"Invalid port for service: {service}")
+                    continue
 
-        return services
+            self.logger.info(f"Loaded {len(services)} domain configurations from {json_file}")
+            return services
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Error parsing JSON configuration file: {e}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error loading services configuration: {e}")
+            return []
 
     def sync_proxy_hosts_from_services(self) -> Set[str]:
         """Synchronize NPM proxy hosts with service definitions"""
         self.logger.info("Synchronizing proxy hosts with service definitions...")
 
-        # Load services from environment
-        services = self.load_services_from_env()
+        # Load services from JSON configuration
+        services = self.load_services_from_json()
         if not services:
-            self.logger.warning("No services found in environment variables")
+            self.logger.warning("No services found in JSON configuration")
             return set()
 
         # Get existing proxy hosts

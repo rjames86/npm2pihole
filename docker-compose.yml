@@ -4,10 +4,10 @@ services:
     env_file: .env
     restart: unless-stopped
     volumes:
-      # Docker socket for restarting NPM container
+      # Docker socket for NPM API calls
       - /var/run/docker.sock:/var/run/docker.sock
-      # Path to Nginx Proxy Manager's config directory (read-write to generate configs)
-      - /Users/rjames/Documents/dockge/stacks/npm/npm/data/nginx/proxy_host/:/app/npm-configs/
+      # Services configuration file (editable without rebuilds)
+      - ./services.json:/app/services.json
       # SSH key(s) for remote Pi-hole access
       - ./ssh/:/root/.ssh/
 
