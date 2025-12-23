@@ -3,7 +3,7 @@
 import os
 import time
 import logging
-from npm_manager import NPMManager
+from npm_api_manager import NPMAPIManager
 from pihole_manager import PiHoleManager
 
 
@@ -14,11 +14,13 @@ class NPM2PiHole:
         self.validate_config()
 
         # Initialize managers
-        self.npm_manager = NPMManager(
+        self.npm_manager = NPMAPIManager(
             self.logger,
             self.domain_suffix,
-            self.npm_config_dir,
-            self.npm_container,
+            self.npm_host,
+            self.npm_email,
+            self.npm_password,
+            self.npm_certificate_id,
             self.testing_mode
         )
 
@@ -56,8 +58,10 @@ class NPM2PiHole:
         self.pihole_host = os.getenv('PIHOLE_HOST', '192.168.0.0')
         self.target_host = os.getenv('NPM_TARGET_HOST', 'npm.example.com')
         self.domain_suffix = os.getenv('DOMAIN_SUFFIX', 'home.example.com')
-        self.npm_config_dir = os.getenv('NPM_CONFIG_DIR', '/app/npm-configs')
-        self.npm_container = os.getenv('NPM_CONTAINER_NAME', 'npm-app-1')
+        self.npm_host = os.getenv('NPM_HOST', 'localhost:81')
+        self.npm_email = os.getenv('NPM_EMAIL', 'admin@example.com')
+        self.npm_password = os.getenv('NPM_PASSWORD', 'changeme')
+        self.npm_certificate_id = int(os.getenv('NPM_CERTIFICATE_ID', '1'))
         self.testing_mode = os.getenv('TESTING_MODE', 'false').lower() == 'true'
         self.sleep_interval = int(os.getenv('SLEEP_INTERVAL', 900))
 
@@ -75,21 +79,25 @@ class NPM2PiHole:
             self.logger.error("Please set DOMAIN_SUFFIX in .env file")
             exit(1)
 
+        if self.npm_email == 'admin@example.com':
+            self.logger.error("Please set NPM_EMAIL in .env file")
+            exit(1)
+
+        if self.npm_password == 'changeme':
+            self.logger.error("Please set NPM_PASSWORD in .env file")
+            exit(1)
+
     def run_check(self):
         """Run a single check cycle with unified workflow"""
         self.logger.info("Starting Check")
 
-        # Step 1: Generate nginx configs from service definitions
-        current_domains = self.npm_manager.generate_nginx_configs_from_services()
+        # Step 1: Sync NPM proxy hosts from service definitions via API
+        current_domains = self.npm_manager.sync_proxy_hosts_from_services()
         self.logger.info(f"Total domains configured: {len(current_domains)}")
 
         if current_domains:
-            # Step 2: Reload nginx configuration to pick up new configs
-            if self.npm_manager.reload_nginx_config():
-                # Step 3: Update Pi-hole CNAME records
-                self.pihole_manager.update_cname_records(current_domains)
-            else:
-                self.logger.error("Failed to reload nginx configuration, skipping Pi-hole update")
+            # Step 2: Update Pi-hole CNAME records
+            self.pihole_manager.update_cname_records(current_domains)
         else:
             self.logger.warning("No domains configured, nothing to do")
 
