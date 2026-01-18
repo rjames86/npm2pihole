@@ -79,7 +79,7 @@ class NPMAPIManager:
 
             if response.status_code in [200, 201]:
                 return response.json() if response.text else {}
-            elif response.status_code == 401:
+            elif response.status_code in [400, 401]:
                 # Token expired, try to refresh
                 self.logger.info("Token expired, refreshing...")
                 self.token = None
